@@ -1,12 +1,10 @@
-#Requires -version 3
 <#
 .SYNOPSIS
-  resolve-dnsoh.ps
-  # create-alias doh resolve-dnsoverhttp
+  resolve-dnsnameoverhttp
+  # new-alias doh resolve-dnsnameoverhttp
   resolve dns query using Cloudflare or Google DNS over HTTPS interface
-.AUTHOR 
+.AUTHOR
   Brian Howson April 2018 (+credits)
-
 .DESCRIPTION
 
 https://developers.cloudflare.com/1.1.1.1/dns-over-https/json-format/
@@ -33,18 +31,18 @@ TODO: make posh6 portable, enforcing Tls12 on linux
 # DNS performance (DNS over UDP)
     https://medium.com/@nykolas.z/dns-resolvers-performance-compared-cloudflare-x-google-x-quad9-x-opendns-149e803734e5
 
-# 
+#
     https://github.com/PowerShell/PowerShell-Docs/issues/1753
 
 
 # Server Mode Garbage collection.
 -- C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe.config --
-<?xml version="1.0" encoding="utf-8" ?> 
+<?xml version="1.0" encoding="utf-8" ?>
 <configuration>
     <runtime>
         <gcServer enabled="true"/>
         <Thread_UseAllCpuGroups enabled="true"/>
-        <GCCpuGroup enabled="true"/>  
+        <GCCpuGroup enabled="true"/>
     </runtime>
 </configuration>
 
@@ -64,30 +62,26 @@ SRV, DNAME, OPT, DS, RRSIG, NSEC, DNSKEY, DHCID, NSEC3, NSEC3PARAM, ANY, ALL, WI
 # refactored job dispatch loop, switched where-object to foreach
 
 .Example
-    get-dnsoverhttp report-uri.com 
-    get-dnsoverhttp report-uri.com CAA
+    resolve-dnsnameoverhttp report-uri.com
+    resolve-dnsnameoverhttp report-uri.com CAA
 
     # work like dig -x 104.107.41.53 to get a PTR lookup 53.41.107.104.in-addr.arpa.
-    get-dnsoverhttp 104.107.41.53 X
-
-    import-module get-dnsoverhttp-mt.ps1
-    set-alias 
-
+    resolve-dnsnameoverhttp 104.107.41.53 X
 
 #>
-
-Function get-dnsoverhttp-mt {
+function resolve-dnsnameoverhttp {
 [CmdletBinding()]
 param (
   [parameter(ValueFromPipeline,Position=0,Mandatory=$true)]
   [String]$Name,
-  [parameter(ValueFromPipeline,Position=1,Mandatory=$false)]  
-  [ValidateSet("ANY","X","A","AAAA","AFSDB","APL","CAA","CDNSKEY","CDS","CERT","CNAME","DHCID","DLV","DNAME","DNSKEY","DS","HIP","IPSECKEY","KEY","KX","LOC","MX","NAPTR","NS","NSEC","NSEC3","NSEC3PARAM","OPENPGPKEY","PTR","RP","RRSIG","SIG","SOA","SRV","SSHFP","TA","TKEY","TLSA","TSIG","TXT","URI")] 
+  [parameter(ValueFromPipeline,Position=1,Mandatory=$false)]
+  [ValidateSet("ANY","X","A","AAAA","AFSDB","APL","CAA","CDNSKEY","CDS","CERT","CNAME","DHCID","DLV","DNAME","DNSKEY","DS","HIP","IPSECKEY","KEY","KX","LOC","MX","NAPTR","NS","NSEC","NSEC3","NSEC3PARAM","OPENPGPKEY","PTR","RP","RRSIG","SIG","SOA","SRV","SSHFP","TA","TKEY","TLSA","TSIG","TXT","URI")]
   [String]$Type = "A",
   [string]$Subnet,
   [switch]$DnssecCd,
   [switch]$Google,
   [switch]$Progress,
+  [switch]$Showall,
   $MaxThreads = 20,    # 20 default, for dns many more
   $SleepTimer = 200,   # 200ms default, for dns much less
   $MaxResultTime = 120 # seconds
@@ -124,17 +118,37 @@ BEGIN {
 
     $scriptblock = {
         param (
-            [Parameter(mandatory=$false, Position=0)]$uri
+            [Parameter(mandatory=$false, Position=0)][string]$uri,
+            [Parameter(mandatory=$false, Position=1)][string]$hostname,
+            [Parameter(mandatory=$false, Position=2)][switch]$Showall
         )
         $request = [System.Net.WebRequest]::Create($uri)
         $request.Method="Get"
-        $response = $request.GetResponse()
+        try {
+            $response = $request.GetResponse()
+        }
+        catch [System.Net.WebException]
+        {
+            $result = $_.Exception.Response
+            $result
+        }
+        $rvalue = $response.StatusCode.value__
+        if ($rvalue -ne 200 ) {
+            $response.StatusCode
+        }
         $requestStream = $response.GetResponseStream()
         $readStream = New-Object System.IO.StreamReader $requestStream
         $data = $readStream.ReadToEnd()
         $results = $data | ConvertFrom-Json
         if ($results.answer) {
             $results.answer
+        } elseif ($showall) {
+            [PSCustomObject]@{
+                name = $hostname
+                type = 0
+                TTL = 0
+                data = $null
+            }
         }
     }
 
@@ -147,19 +161,24 @@ BEGIN {
     $Jobs = New-Object System.Collections.Generic.List[System.Object]
 }
 PROCESS {
-    if ($Type -eq "X" -and $Name -match "^(([01]?[0-9]?[0-9]|2[0-5][0-5])\.){3}([01]?[0-9]?[0-9]|2[0-5][0-5])$") {
+#    if ($Type -eq "X" -and $Name -match "^(([01]?[0-9]?[0-9]|2[0-5][0-5])\.){3}([01]?[0-9]?[0-9]|2[0-5][0-5])$") {
+    if ($Type -eq "X" -and $Name -match "^(?:(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])(\.(?!$)|$)){4}$") {
         $IP = $Name.split(".")
         $Name = $IP[3] + "." +  $IP[2] + "." + $IP[1] + "." + $IP[0] + ".in-addr.arpa."
-        $Type = "PTR"
+        $xType = "PTR"
+    } else {
+        $xType = $Type
     }
     ForEach ($nm in $Name){
-        $quri = $uri + "name=$nm&type=$Type"
+        $quri = $uri + "name=$nm&type=$xType"
         write-verbose "$quri"
         if ($Progress) {
             Write-Progress -Activity "Preloading threads" -Status "Starting Job $($jobs.count) $Name"
         }
         $PowershellThread = [powershell]::Create().AddScript($Code)
         $null = $PowershellThread.AddParameter("uri",$quri)
+        $null = $PowershellThread.AddParameter("hostname",$nm)
+        $null = $PowershellThread.AddParameter("showall",$showall)
         $PowershellThread.RunspacePool = $RunspacePool
         $Handle = $PowershellThread.BeginInvoke()
 
@@ -173,7 +192,7 @@ PROCESS {
 End {
     $Remaining = 1
 #    $maxrun = $($MaxThreads - $($RunspacePool.GetAvailableRunspaces()))
-    While ($Remaining -gt 0)  {        
+    While ($Remaining -gt 0)  {
         $Remaining = 0
         ForEach ($Job in $Jobs) {
             if ($Job.Handle.IsCompleted -eq $True) {
@@ -181,9 +200,9 @@ End {
                 $Job.Thread.Dispose()
                 $Job.Thread = $Null
                 $Job.Handle = $Null
-            } elseif ((-not $running) -and ($Job.Handle -ne $Null)) {
+            } elseif ((-not $running) -and ($Null -ne $Job.Handle)) {
                 $Remaining += 1
-            }                
+            }
         }
         if ($Progress) {
             Write-Progress `
@@ -192,7 +211,7 @@ End {
                 -Status "Remaining $Remaining"
         }
         Start-Sleep -Milliseconds $SleepTimer
-    } 
+    }
     $null = $RunspacePool.Close()
     $null = $RunspacePool.Dispose()
     $null = $ServicePoint.CloseConnectionGroup("")
@@ -200,5 +219,6 @@ End {
     $global:ProgressPreference = $ProgressSaved
     write-verbose "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"
     write-host "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"
+    remove-variable Session 
 }
 }
