@@ -82,22 +82,22 @@ C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe.config:
 ## Usage
 
         import-module .\get-dnsoverhttp-mt.ps1
-        Set-Alias doh get-dnsoverhttp-mt
-        doh www.ibm.com
+        Set-Alias doh resolve-dnsnameoverhttp
+        doh www.example.com
         get-content biglistofdomains.txt | doh -type CAA -google
 
 I tried to make the parameters a superset of the builtin resolve-dnsname cmdlet.
 
     NAME
-        get-dnsoverhttp-mt
+        resolve-dnsnameoverhttp
 
     SYNTAX
-        get-dnsoverhttp-mt [-Name] <string> [[-Type] <string> {ANY | X | A | AAAA
+        resolve-dnsnameoverhttp [-Name] <string> [[-Type] <string> {ANY | X | A | AAAA
         | AFSDB | APL | CAA | CDNSKEY | CDS | CERT | CNAME | DHCID | DLV | DNAME |
         DNSKEY | DS | HIP | IPSECKEY | KEY | KX | LOC | MX | NAPTR | NS | NSEC |
         NSEC3 | NSEC3PARAM | OPENPGPKEY | PTR | RP | RRSIG | SIG | SOA | SRV |
         SSHFP | TA | TKEY | TLSA | TSIG | TXT | URI}] [-Subnet <string>]
-        [-DnssecCd] [-Google] [-Progress] [-MaxThreads <Object>] [-SleepTimer
+        [-DnssecCd] [-Google] [-Progress] [-Showall] [-MaxThreads <Object>] [-SleepTimer
         <Object>] [-MaxResultTime <Object>]  [<CommonParameters>]
 
 ## Results
