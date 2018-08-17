@@ -7,7 +7,7 @@ This is a repository of my powershell script modules.  These are things I didn't
 Key points of this:
 
 * Using DNS over HTTP, invoke-webrequest with json
-* Supprting google and cloudflare
+* Supporting google and cloudflare
 * Multi-threading and optimizations
 * CAA Statistics for Alexa top 1M
 
