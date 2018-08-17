@@ -103,5 +103,5 @@ I tried to make the parameters a superset of the builtin resolve-dnsname cmdlet.
 ## Results
 
 * Google DNS is about 20% faster for me.
-* Only about 5800 out of the Alexa1M domains have CAA records - 0.5%
+* Only about 7752 out of the Alexa1M domains have CAA records - 0.77%
 * Aout the same number out of the Chromium HSTS preload have CAA, but out of 50000, that's about 10%.
