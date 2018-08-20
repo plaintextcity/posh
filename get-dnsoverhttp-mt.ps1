@@ -65,11 +65,12 @@ SRV, DNAME, OPT, DS, RRSIG, NSEC, DNSKEY, DHCID, NSEC3, NSEC3PARAM, ANY, ALL, WI
 # Just emit objects 
 
 .Example
-    get-dnsoverhttp report-uri.com
-    get-dnsoverhttp report-uri.com CAA
+    resolve-dnsnameoverhttp example.com
+    resolve-dnsnameoverhttp example.com CAA
+    resolve-dnsnameoverhttp example.com ANY
 
-    # work like dig -x 104.107.41.53 to get a PTR lookup 53.41.107.104.in-addr.arpa.
-    get-dnsoverhttp 104.107.41.53 X
+    # work like dig -x 203.0.113.53 to get a PTR lookup 53.113.0.203.in-addr.arpa.
+    resolve-dnsnameoverhttp 203.0.113.53 X
 
 #>
 function resolve-dnsnameoverhttp {
@@ -215,7 +216,7 @@ End {
     [System.Net.ServicePointManager]::SecurityProtocol = $CurrentSSL
     $global:ProgressPreference = $ProgressSaved
     write-verbose "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"
-    write-host "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"    
-#    remove-variable Session 
+    write-host "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"
+#    remove-variable Session
 }
 }
