@@ -59,14 +59,17 @@ SRV, DNAME, OPT, DS, RRSIG, NSEC, DNSKEY, DHCID, NSEC3, NSEC3PARAM, ANY, ALL, WI
 
 # Generic list vs. recreating array to add
    https://stackoverflow.com/questions/14620290/powershell-array-add-vs
+
 # refactored job dispatch loop, switched where-object to foreach
 
+# Just emit objects 
+
 .Example
-    resolve-dnsnameoverhttp report-uri.com
-    resolve-dnsnameoverhttp report-uri.com CAA
+    get-dnsoverhttp report-uri.com
+    get-dnsoverhttp report-uri.com CAA
 
     # work like dig -x 104.107.41.53 to get a PTR lookup 53.41.107.104.in-addr.arpa.
-    resolve-dnsnameoverhttp 104.107.41.53 X
+    get-dnsoverhttp 104.107.41.53 X
 
 #>
 function resolve-dnsnameoverhttp {
@@ -113,13 +116,13 @@ BEGIN {
     }
 
     $ServicePoint.ConnectionLimit = ($MaxThreads * 2)
-    $global:Session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+#    $global:Session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $null = invoke-RestMethod -Uri ($uri + "name=google.com&type=A") -UseBasicParsing -headers $headers -UserAgent "" -TimeoutSec 20 -SessionVariable Session
 
     $scriptblock = {
         param (
-            [Parameter(mandatory=$false, Position=0)][string]$uri,
-            [Parameter(mandatory=$false, Position=1)][string]$hostname,
+            [Parameter(mandatory=$true, Position=0)][string]$uri,
+            [Parameter(mandatory=$true, Position=1)][string]$hostname,
             [Parameter(mandatory=$false, Position=2)][switch]$Showall
         )
         $request = [System.Net.WebRequest]::Create($uri)
@@ -141,13 +144,13 @@ BEGIN {
         $data = $readStream.ReadToEnd()
         $results = $data | ConvertFrom-Json
         if ($results.answer) {
-            $results.answer
+            $results.answer #| select-object -property "name", "type", "data"
         } elseif ($showall) {
             [PSCustomObject]@{
                 name = $hostname
                 type = 0
                 TTL = 0
-                data = $null
+                data = ""
             }
         }
     }
@@ -161,13 +164,12 @@ BEGIN {
     $Jobs = New-Object System.Collections.Generic.List[System.Object]
 }
 PROCESS {
-#    if ($Type -eq "X" -and $Name -match "^(([01]?[0-9]?[0-9]|2[0-5][0-5])\.){3}([01]?[0-9]?[0-9]|2[0-5][0-5])$") {
     if ($Type -eq "X" -and $Name -match "^(?:(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])(\.(?!$)|$)){4}$") {
         $IP = $Name.split(".")
         $Name = $IP[3] + "." +  $IP[2] + "." + $IP[1] + "." + $IP[0] + ".in-addr.arpa."
         $xType = "PTR"
     } else {
-        $xType = $Type
+        $xType = $Type.ToUpper()
     }
     ForEach ($nm in $Name){
         $quri = $uri + "name=$nm&type=$xType"
@@ -175,23 +177,18 @@ PROCESS {
         if ($Progress) {
             Write-Progress -Activity "Preloading threads" -Status "Starting Job $($jobs.count) $Name"
         }
-        $PowershellThread = [powershell]::Create().AddScript($Code)
-        $null = $PowershellThread.AddParameter("uri",$quri)
-        $null = $PowershellThread.AddParameter("hostname",$nm)
-        $null = $PowershellThread.AddParameter("showall",$showall)
+        $PowershellThread = [powershell]::Create().AddScript($Code).AddParameters(@{uri=$quri; hostname = $nm; showall = $Showall})
         $PowershellThread.RunspacePool = $RunspacePool
         $Handle = $PowershellThread.BeginInvoke()
-
-        $Job = "" | Select-Object Handle, Thread, object
-        $Job.Handle = $Handle
-        $Job.Thread = $PowershellThread
-        $Job.Object = $Name
-        $Jobs.Add($Job)
+        $Jobs.Add([PSCustomObject]@{
+            Handle = $Handle
+            Thread = $PowershellThread
+            Object = $Name
+        })
     }
 }
 End {
-    $Remaining = 1
-#    $maxrun = $($MaxThreads - $($RunspacePool.GetAvailableRunspaces()))
+    $Remaining = $Jobs.Count
     While ($Remaining -gt 0)  {
         $Remaining = 0
         ForEach ($Job in $Jobs) {
@@ -218,7 +215,7 @@ End {
     [System.Net.ServicePointManager]::SecurityProtocol = $CurrentSSL
     $global:ProgressPreference = $ProgressSaved
     write-verbose "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"
-    write-host "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"
-    remove-variable Session 
+    write-host "Elapsed Time: $($ElapsedTime.Elapsed.ToString())"    
+#    remove-variable Session 
 }
 }
